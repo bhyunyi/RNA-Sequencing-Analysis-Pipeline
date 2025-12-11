@@ -23,8 +23,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 #define the paths to be used and make directories where needed
-BASE=/path/to/base/analysis/directory/
-OUT=${BASE}/rnaseq_analysis/${sample}
+BASE=/path/to/sample/fastqs/${sample}
+OUT=/path/to/output/directory/${sample}
 mkdir -p "$OUT"
 cd "$BASE"
 
