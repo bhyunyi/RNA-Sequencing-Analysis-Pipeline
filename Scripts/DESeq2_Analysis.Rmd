@@ -1,0 +1,313 @@
+---
+title: "RNA-Seq Analysis"
+output: html_document
+date: "2025-12-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Running the DESeq2 Analysis.
+
+Load the necessary libraries for the analysis.
+```{r}
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+library(readr)
+#library(tximportData)
+```
+
+Set the sample names and the conditions.
+### CHANGE SAMPLE NAMES AND CONDITIONS HERE FOR DIFFERENT ANALYSES ###
+
+```{r}
+# Add in the sample names as a list below
+sample_names <- c('input sample names here')
+# Add in the conditions below with the correct number of replicates for each condition
+sample_condition <- c(rep('Condition 1',3),rep('Condition 2',3),rep('Condition 3',3))
+unique_condition = unique(sample_condition)
+num_conditions = length(unique_condition)
+
+```
+
+
+Define the abundance files paths and import the tx2gene tsv. 
+### CHANGE PATHS HERE FOR DIFFERENT ANALYSES ###
+
+```{r}
+analysis_path = "/path/to/kallito/outputs"
+abundance_path = file.path(analysis_path, sample_names,"abundance.tsv")
+names(abundance_path) = sample_names
+
+tx2gene = read.table("/path/to/tx2gene/file/tx2gene.clean.tsv",sep = "\t")
+
+```
+
+Run tximport on the abundance files. Maps transcript level counts to gene level counts for DESeq2 analysis.
+
+```{r}
+txi_samples <- tximport(abundance_path, type="kallisto", tx2gene=tx2gene)
+```
+
+define the sample dataframe and make a deseq2 dataframe. 
+
+```{r}
+sample_df <- data.frame(sample = factor(sample_names),
+              condition = factor(sample_condition,levels = unique_condition ))
+# set row names attribute of sample_df
+row.names(sample_df) <- sample_names
+
+dds <- DESeqDataSetFromTximport(txi_samples,
+colData = sample_df,
+design = ~condition)
+```
+
+
+filter out low count genes 
+
+```{r}
+# pre-filter low count genes
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+```
+
+
+Relevel and make multiple dds objects if there are more than 2 conditions
+
+```{r}
+# If there are greater than 2 conditions, this will create a list of dds objects in which a different condition is the reference 
+if (num_conditions > 2){
+  dds_list = c()
+  for (c in 1:num_conditions) {
+    dds$condition = relevel(ddscondition,ref = unique_condition[c])
+    dds_c = DESeq(dds)
+    dds_list[[ unique_condition[c] ]] <- dds_c
+  }
+  
+  res_list <- c()
+  res_shrink_list <- c()
+  
+  for (ref in unique_condition) {  
+      dds_ref <- dds_list[[ref]]
+      
+      # Get coefficient names from DESeq2
+      coef_names <- resultsNames(dds_ref)
+      
+      # Loop through coefficients
+      for (cn in coef_names) {
+          # Skip the intercept
+          if (cn == "Intercept") next
+          
+          message("Processing: ", cn)
+          
+          # Extract result
+          res <- results(dds_ref, name = cn, alpha = 0.05)
+          
+          # Run lfcShrink
+          res_shrink <- lfcShrink(dds_ref, coef = cn, type = "apeglm")
+          
+          # Save with meaningful names
+          res_list[[ cn ]] <- res
+          res_shrink_list[[ cn ]] <- res_shrink
+      }
+  }
+  
+  ensembl_names = row.names(res_shrunk_list[1])
+  
+} else {
+  
+  coef_name <- resultsNames(dds)[2]
+  res <- results(dds, name = coef_name, alpha = 0.05)
+  
+  res_shrunk <- lfcShrink(dds,
+                          coef = coef_name,
+                          type = "apeglm")
+  
+  ensembl_names = row.names(res_shrunk)
+  
+}
+```
+
+
+Get Gene symbol names for each ENSG ID:
+
+```{r}
+library(biomaRt)
+```
+
+Rid of version numbers in ENSG IDs and use Biomart to get Gene names. 
+
+```{r}
+# rids of version numbers after a "." character in ENSG IDs
+ensembl_names_no_version <- gsub("\\.\\d+$", "", ensembl_names)
+
+# searches biomart for external gene names 
+ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
+
+gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                       filters = "ensembl_gene_id",
+                       values = ensembl_names_no_version,
+                       mart = ensembl)
+
+```
+
+```{r}
+# create a vector of gene names aligned with res
+gene_names <- gene_info$external_gene_name[match(ensembl_names_no_version, gene_info$ensembl_gene_id)]
+
+# replace NAs with the Ensembl ID itself
+gene_names[is.na(gene_names)] <- ensembl_names[is.na(gene_names)]
+```
+
+
+Give every res object a column with external gene name
+
+```{r}
+if (num_conditions > 2) {
+  
+  for (res in res_shrink_list){
+    res$geneID = gene_names
+  }
+  
+} else {
+  res_shrunk$geneID = gene_names
+}
+
+```
+
+Function for volcano plot and results 
+
+```{r}
+volcano_plot = function(res,lfc_val,comp_name){
+  
+  res$log2FoldChange = as.numeric(res$log2FoldChange)
+  # Keep NA as NA, do not replace
+  res$neglog_padj <- -log10(res$padj)
+  # Optionally, remove rows with NA if you want to completely exclude them from plotting
+  res_plot <- res[!is.na(res$neglog_padj), ]
+  res_plot$significant = ifelse(!is.na(res_plot$padj) & res_plot$padj < 0.05, "Significant", "Not Significant")  
+
+  plot_labels = res_plot[!is.na(res_plot$padj) & abs(res_plot$log2FoldChange) > lfc_val & res_plot$padj < 0.05, ]
+  
+  volcano_plot = ggplot(res_plot, aes(x = log2FoldChange, y = neglog_padj, color = significant)) +
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dotted", color = "blue") +
+    geom_vline(xintercept = lfc_val, linetype = "dotted", color = "blue") +
+    geom_vline(xintercept = lfc_val*(-1), linetype = "dotted", color = "blue") +
+    geom_text(data = plot_labels, aes(label = geneID, vjust = -0.5), size = 2) +
+    annotate("text", x = Inf, y = Inf, label = paste0(length(res_plot$geneID)," genes present"), hjust = 2, vjust = 1.1, size = 3) +
+  xlim(-10,10)+
+  labs(title = paste0("Volcano Plot for ", comp_name), x = "Log2 Fold change", y = "-log(adjusted p-value)", 
+       color = "Significance of Differential Expression")
+  
+    # Saves the volcano plot to a directory
+  setwd(analysis_path)
+  ggsave(paste0(comp_name,"_volcanoplot.png"), plot = volcano_plot, width = 10, height = 6, dpi = 300)
+  
+  res_top_genes = res[!is.na(res$padj) & abs(res$log2FoldChange) > 1 & res$padj < 0.05, ]
+  res_top_genes_sorted = res_top_genes[order(res_top_genes$padj,decreasing = FALSE),]
+  res_top_10 = head(res_top_genes_sorted,10)
+  res_top_10 = as.data.frame(res_top_10)
+  top_file_name = paste0(comp_name,collapse = "")
+  write_csv(res_top_10,file = paste0(top_file_name,"_top10_genes.csv"))
+  
+  
+  return(volcano_plot)
+  
+}
+```
+
+
+## Heat maps for specific genes
+
+```{r}
+library(pheatmap)
+```
+
+Function for generating heatmap based on genes of interest
+
+```{r}
+clustermap <- function(dds, genes, gene_names, plot_name){
+  
+  # Set rownames of dds to gene names (important if needed for indexing)
+  rownames(dds) <- gene_names
+  
+  # Filter genes to only those present in gene_names
+  valid_genes <- intersect(genes, gene_names)
+
+  if (length(valid_genes) == 0) {
+    stop("None of the input genes are present in gene_names.")
+  }
+  
+  # Get size-factor normalized counts
+  normvalues <- counts(dds, normalized = TRUE)
+
+  # Subset to valid genes only
+  gene_vals <- normvalues[valid_genes, , drop = FALSE]
+
+  # Apply log2(x + 1)
+  gene_vals_log <- log2(gene_vals + 1)
+
+  # Plot
+  setwd(analysis_path)
+  png(paste0(plot_name, "_clustermap.png"), width = 5000, height = 5000, res = 500)
+
+  pheatmap::pheatmap(
+    gene_vals_log,
+    show_rownames = TRUE,
+    show_colnames = TRUE,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    display_numbers = FALSE,
+    cellwidth = 50,
+    cellheight = 10,
+    fontsize = 12,
+    border_color = NA,
+    main = paste0(plot_name, " Clustered Log2 Expression")
+  )
+
+  dev.off()
+}
+```
+
+
+```{r}
+int_heatmap = function(dds,genes,gene_names,plot_name){
+  
+  rownames(dds) = gene_names
+  
+  normvalues = counts(dds,normalized = T)
+  
+  gene_vals = normvalues[genes,]
+  
+  setwd(analysis_path)
+  png(paste0(plot_name,"_heatmap.png"),width = 3000, height = 2000, res = 300)
+
+  # Generate clustered heatmap
+  pheatmap(gene_vals,
+         show_rownames = TRUE,     
+         show_colnames = TRUE,    
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         display_numbers = TRUE,
+         cellwidth = 50,
+         cellheight = 50,
+         fontsize = 12,
+         main = paste0(plot_name, " Gene Expression"))
+
+  dev.off()
+  
+  
+}
+```
+
+Example of executing cluster map function for given genes. 
+
+```{r}
+iMG_names = c("IL4","IL10","TMEM119","P2RY12","GPR34","CX3CR1","C1QA","STAT1","STAT6","CD68","IBA1","KLF4","KLF5","KLF6","NOS2","CD14","CD34","TGFB1","TNFA","IL12A","IL23A","CD11B")
+clustermap(dds3,iMG_names,gene_names,"iMG")
+```
+
+
