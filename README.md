@@ -52,9 +52,7 @@ Line 44: tx2gene = read.table("/path/to/tx2gene/file/tx2gene.clean.tsv",sep = "\
 
 To create a tx2gene.tsv file, execute the following command in the terminal and within the directory containing the reference fasta sequence used to generate the kallisto index in Part 1:
 
-grep "^>" human_reference.fa \
-| sed -E 's/^>([^ ]+).*gene:([^ ]+).*/\1\t\2/' \
-| awk '{if(NF==1){print $1"\t"$1} else {print $0}}' > tx2gene.tsv
+grep "^>" human_reference.fa | sed -E 's/^>([^ ]+).*gene:([^ ]+).*/\1\t\2/' | awk '{if(NF==1){print $1"\t"$1} else {print $0}}' > tx2gene.tsv
 
 The “human_reference.fa” can be any reference fasta sequence that was also used to generate the kallisto index. This will output a “tx2gene.tsv” file in which there are two columns where the first column has all transcript IDs from the reference, and the second column has the corresponding gene ID of the transcripts from the first column. 
 
