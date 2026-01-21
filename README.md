@@ -1,6 +1,6 @@
-Below are the directions to use this RNA-Seq analysis Pipeline.
+# Below are the directions to use this RNA-Seq analysis Pipeline.
 
-Part 1: Running Kallisto Pseudoalignment and Pseudobam generation
+## Part 1: Running Kallisto Pseudoalignment and Pseudobam generation
 
 The “Run_Kallisto_pseudobam.sbatch” takes an input of an RNA sequenced sample name, and an optional input of a kallisto reference index name. First, FastQC is used to perform quality control on the fastq files of the sample. Then, Trimgalore is used to trim the reads of the raw data. Trimgalore performs another round of FastQC on the trimmed reads and outputs the trimmed reads into a specified output folder. These trimmed reads are analyzed using Kallisto, resulting in outputs that specify transcript counts and a pseudobam file. 
 
@@ -32,7 +32,7 @@ If you are using a different kallisto reference index:
 
 These sbatch calls need to be run for each sample raw data file within the experiment. 
 
-Part 2: Performing Differential Expression Analysis and Visualization of Results:
+## Part 2: Performing Differential Expression Analysis and Visualization of Results:
 
 The “DESeq2_Analysis.Rmd” script is an R markdown script that performs DESeq2 analysis on the RNA sequenced samples to provide differential expression analysis of genes expressed from different conditions of the experiment. The script first imports the transcript count outputs from the kallisto pseudoalignment step in Part 1, then uses the tx2gene package to convert transcript counts into gene counts. This conversion is required with DESeq2 because the DESeq2 analysis package assumes that the abundance measurements are on the gene-level, not the transcript-level. LFCshrinkage is performed to ensure that the log fold change values are stabilized and not skewed by low count genes in the analysis. To further ensure that the LFC values are stabilized, low count genes are also filtered out before the shrinkage operations. The results of the DESeq2 analysis are then used to generate volcano plots, heat maps, or cluster maps that visualize the results in a clear and readable manner. 
 
