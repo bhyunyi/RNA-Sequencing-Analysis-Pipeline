@@ -25,10 +25,10 @@ Line 78: --single -l 180 -s 20 \
 To run the sbatch file, the user must use the terminal, navigate to the directory that contains the “Run_Kallisto_pseudobam.sbatch” script, and call upon the script in the following format:
 
 If you are using the default kallisto reference index:
-sbatch Run_Kallisto_pseudobam.sbatch -sample mysamplename 
+- sbatch Run_Kallisto_pseudobam.sbatch -sample mysamplename 
 
 If you are using a different kallisto reference index:
-sbatch Run_Kallisto_pseudobam.sbatch -sample mysamplename -index indexname
+- sbatch Run_Kallisto_pseudobam.sbatch -sample mysamplename -index indexname
 
 These sbatch calls need to be run for each sample raw data file within the experiment. 
 
