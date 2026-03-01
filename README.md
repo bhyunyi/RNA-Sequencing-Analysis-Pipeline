@@ -60,7 +60,7 @@ Below is an extra step that may be unnecessary if the first command executes pro
 
 awk '{gsub(/^>/,"",$1); gsub(/^>/,"",$2); print $1 "\t" $2}' tx2gene.tsv > tx2gene.clean.tsv
 
-Line 190: res_plot$significant = ifelse(!is.na(res_plot$padj) & res_plot$padj < 0.05, "Significant", "Not Significant")  
+Line 147: res_plot$significant = ifelse(!is.na(res_plot$padj) & res_plot$padj < 0.05, "Significant", "Not Significant")  
 - Change the 0.05 p-value significance threshold if needed. This value will be the p-value threshold of statistical significance for the volcano plots. 
 
 Call the “volcano_plot” function with the proper input variables for the specific conditions you want visualized. 
@@ -77,3 +77,6 @@ Call the “cluster_map” function with the proper input variables to generate 
 Call the “int_heatmap” function with the proper input variables to generate a heatmap with genes of interest on the y-axis, and the sample names on the x-axis. This plot is very similar to the cluster map, but either function can be used based on the user’s personal preference.
 - The input variables follow the same rules as the input variables for the cluster map. 
 
+Call the "comp_bar_graph" function with the proper input variables to generate a bar plot with genes on interest on the x-axis and the log2fold change values of the two conditions being compared in the plot. Negative log2fold change values mean that the reference condition is expressing a given gene more than the test condition. 
+
+Call the "GSEA_plot" function with the proper input variables to generate a dot plot of the Gene Set enrichment Analysis of two conditions given by a "res" object. 
