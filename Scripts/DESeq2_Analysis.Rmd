@@ -77,59 +77,24 @@ dds <- dds[keep,]
 Relevel and make multiple dds objects if there are more than 2 conditions
 
 ```{r}
-# If there are greater than 2 conditions, this will create a list of dds objects in which a different condition is the reference 
-if (num_conditions > 2){
-  dds_list = c()
-  for (c in 1:num_conditions) {
-    dds$condition = relevel(ddscondition,ref = unique_condition[c])
-    dds_c = DESeq(dds)
-    dds_list[[ unique_condition[c] ]] <- dds_c
-  }
-  
-  res_list <- c()
-  res_shrink_list <- c()
-  
-  for (ref in unique_condition) {  
-      dds_ref <- dds_list[[ref]]
-      
-      # Get coefficient names from DESeq2
-      coef_names <- resultsNames(dds_ref)
-      
-      # Loop through coefficients
-      for (cn in coef_names) {
-          # Skip the intercept
-          if (cn == "Intercept") next
-          
-          message("Processing: ", cn)
-          
-          # Extract result
-          res <- results(dds_ref, name = cn, alpha = 0.05)
-          
-          # Run lfcShrink
-          res_shrink <- lfcShrink(dds_ref, coef = cn, type = "apeglm")
-          
-          # Save with meaningful names
-          res_list[[ cn ]] <- res
-          res_shrink_list[[ cn ]] <- res_shrink
-      }
-  }
-  
-  ensembl_names = row.names(res_shrunk_list[1])
-  
-} else {
-  
-  coef_name <- resultsNames(dds)[2]
-  res <- results(dds, name = coef_name, alpha = 0.05)
-  
-  res_shrunk <- lfcShrink(dds,
-                          coef = coef_name,
-                          type = "apeglm")
-  
-  ensembl_names = row.names(res_shrunk)
-  
-}
-```
+# COPY AND PAST THE RELEVELING OF DDS DONE BELOW BASED ON WHICH CONDITIONS YOU WANT TO SEE AS THE REFERENCE CONDITION 
+# Reference = x
+dds$condition <- relevel(dds$condition, ref = "x")
+dds_x <- DESeq(dds)
 
+```
+Extract the results object and perform lfc shrinkage operations
+
+```{r}
+# COPY AND PAST THE LFC SHRINKAGE TO REPEAT THIS OPERATION BASED ON COMBINATIONS OF CONDITIONS YOU WANT COMPARED IN YOUR ANALYSIS
+# Reference = x
+res_x_y <- results(dds_s, contrast = c('condition','y','x'),alpha = 0.05)
+res_x_y.lfcShrink <- lfcShrink(dds_x,
+                    res = res_x_y,
+                    coef = 'condition_y_vs_x',
+                    type = 'apeglm')
+
+```
 
 Get Gene symbol names for each ENSG ID:
 
@@ -140,6 +105,7 @@ library(biomaRt)
 Rid of version numbers in ENSG IDs and use Biomart to get Gene names. 
 
 ```{r}
+ensembl_names = row.names(res_a30iF_a42i_old.lfcShrink)
 # rids of version numbers after a "." character in ENSG IDs
 ensembl_names_no_version <- gsub("\\.\\d+$", "", ensembl_names)
 
@@ -161,19 +127,10 @@ gene_names <- gene_info$external_gene_name[match(ensembl_names_no_version, gene_
 gene_names[is.na(gene_names)] <- ensembl_names[is.na(gene_names)]
 ```
 
-
 Give every res object a column with external gene name
 
 ```{r}
-if (num_conditions > 2) {
-  
-  for (res in res_shrink_list){
-    res$geneID = gene_names
-  }
-  
-} else {
-  res_shrunk$geneID = gene_names
-}
+res_x_y.lfcShrink$geneID = gene_names
 
 ```
 
@@ -299,15 +256,111 @@ int_heatmap = function(dds,genes,gene_names,plot_name){
 
   dev.off()
   
-  
 }
 ```
 
-Example of executing cluster map function for given genes. 
+Comparative Bar Graph
 
 ```{r}
-iMG_names = c("IL4","IL10","TMEM119","P2RY12","GPR34","CX3CR1","C1QA","STAT1","STAT6","CD68","IBA1","KLF4","KLF5","KLF6","NOS2","CD14","CD34","TGFB1","TNFA","IL12A","IL23A","CD11B")
-clustermap(dds3,iMG_names,gene_names,"iMG")
+comp_bar_graph = function(res,genes,plot_name) {
+  
+  all_genes <- res$geneID
+
+  valid_genes <- intersect(genes, all_genes)
+
+  if (length(valid_genes) == 0) {
+    stop("None of the input genes are present in gene_names.")
+  }
+
+  res_genes <- res[res$geneID %in% valid_genes, ]
+
+  plot_df <- res_genes[, c("geneID", "log2FoldChange")]
+  
+  com_bar = ggplot(plot_df, aes(x = geneID, y = log2FoldChange)) +
+  geom_bar(stat = "identity") +
+  theme_classic() +
+  theme(
+        plot.title = element_text(size = 20),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        axis.text.x = element_text(size = 12,angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12)
+        ) +
+  ylab("Log2 Fold Change") +
+  xlab("Gene") +
+  ggtitle(paste0("Comparative Bar Plot for ", plot_name))
+  
+  save_name = gsub(" ","_",plot_name)
+  setwd(analysis_path)
+  ggsave(
+  filename = paste0(save_name, "_comp_bar.png"),
+  plot = com_bar,
+  width = 20,
+  height = 10,
+  dpi = 500
+  )
+  
+  print(com_bar)
+}
+```
+
+Gene Set Enrichment Analysis with Cluster Profiler
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+organism = "org.Hs.eg.db"
+#BiocManager::install(organism,character.only = TRUE)
+library(organism,character.only = TRUE)
+```
+
+```{r}
+GSEA_plot = function(res,comp_name){
+  
+  original_gene_list = res$log2FoldChange
+  
+  names(original_gene_list) = rownames(res)
+  
+  gene_list = na.omit(original_gene_list)
+  
+  gene_list = sort(gene_list,decreasing = TRUE)
+  
+  names(gene_list) = gsub("\\..*", "", names(gene_list))
+  
+  gene_list = gene_list[!duplicated(names(gene_list))]
+  
+  gse = gseGO(geneList = gene_list,
+              ont = "BP",
+              keyType = "ENSEMBL",
+              minGSSize = 3,
+              maxGSSize = 800,
+              pvalueCutoff = 0.05,
+              verbose = TRUE,
+              OrgDb = org.Hs.eg.db,
+              pAdjustMethod = "BH")
+  
+  require(DOSE)
+  GSEA_dotplot = dotplot(gse,showCategory = 10, split=".sign") + facet_grid(.~.sign) +
+    ggtitle(paste0("GSEA Dot Plot for ", comp_name)) +
+  theme(
+        plot.title = element_text(size = 20),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        axis.text.x = element_text(size = 12,angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12)
+        ) 
+  
+  save_name = gsub(" ","_",comp_name)
+  setwd(analysis_path)
+  ggsave(
+  filename = paste0(save_name, "_GSEA_dotplot.png"),
+  plot = GSEA_dotplot,
+  width = 20,
+  height = 10,
+  dpi = 500
+  )
+}
+
 ```
 
 
