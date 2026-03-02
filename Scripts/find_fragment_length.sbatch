@@ -12,7 +12,7 @@
 module purge
 
 singularity exec --nv \
-	    --overlay /scratch/by2372/ML_envir/ML_envir.ext3:ro \
+	    --overlay /path/to/environment/envir.ext3:ro \
 	    /share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif \
 	    /bin/bash -c 'source /ext3/env.sh
 
@@ -28,12 +28,12 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-cd /scratch/by2372/Microglia_RNA_Seq_10FEB2026/Salmon_frag_length/
+cd /path/to/frag_length/output/
 
 #run the salmon pseudoalignment
 salmon quant -i /projects/rps/truond01/truonglab/GRCh38/Salmon_idx \
 -l A \
--r /scratch/by2372/Microglia_RNA_Seq_10FEB2026/Raw_data/${sample}.fastq.gz \
+-r /path/to/Raw_data/${sample}.fastq.gz \
 --validateMappings -o salmon_tmp
 
 python3 <<EOF
