@@ -1,26 +1,29 @@
 # Below are the directions to use this RNA-Seq analysis Pipeline.
 
-## Part 1: Running Kallisto Pseudoalignment and Pseudobam generation
+## Part 1A: Running Kallisto Pseudoalignment and Pseudobam generation
 
 The “Run_Kallisto_pseudobam.sbatch” takes an input of an RNA sequenced sample name, and an optional input of a kallisto reference index name. First, FastQC is used to perform quality control on the fastq files of the sample. Then, Trimgalore is used to trim the reads of the raw data. Trimgalore performs another round of FastQC on the trimmed reads and outputs the trimmed reads into a specified output folder. These trimmed reads are analyzed using Kallisto, resulting in outputs that specify transcript counts and a pseudobam file. 
 
 Change the following lines in “Run_Kallisto_pseudobam.sbatch” based on the RNA sequencing experiment and location of the raw data and kallisto index. 
 
-Line 14: index="Homo_sapiens.GRCh38.cdna.all_kallisto.idx"
-- The default index is set to a kallisto index of the human genome GRCh38 that lives in the truong lab projects directory. Lines 70 and 75 call on this kallisto index in which the location in the truong lab projects folder is specified. Change this index file name to the desired index if the default human genome index is not meant to be used for a specific RNA sequencing experiment. Change the index directory locations in lines 70 and 75 if the locations are changed. You can also specify a different index name within the same directory using the “-index” call at the command line when executing this sbatch script. 
+Line 14: --overlay /path/to/environment/envir.ext3:ro \
+- Input the path to the singularity overlay environment that is needed to run this script. 
 
-Line 26: BASE=/path/to/sample/fastqs/${sample}
+Line 21: index="Homo_sapiens.GRCh38.cdna.all_kallisto.idx"
+- The default index is set to a kallisto index of the human genome GRCh38 that lives in the truong lab projects directory. Lines 71 and 76 call on this kallisto index in which the location in the truong lab projects folder is specified. Change this index file name to the desired index if the default human genome index is not meant to be used for a specific RNA sequencing experiment. Change the index directory locations in lines 70 and 75 if the locations are changed. You can also specify a different index name within the same directory using the “-index” call at the command line when executing this sbatch script. 
+
+Line 33: BASE=/path/to/sample/fastqs/${sample}
 - Input the path to the raw data fastq files where it says “/path/to/sample/fastqs/”. Keep the “${sample}” variable as is at the end of the file path. 
 
-Line 27: OUT=/path/to/output/directory/${sample}
+Line 34: OUT=/path/to/output/directory/${sample}
 - Input the path in which the RNA seq outputs will be deposited after analysis is performed. Replace “/path/to/output/directory/” with the desired output file path, while keeping the “${sample}” variable as is at the end of the file path. 
 
-Line 34: module load kallisto/0.46.1
-- Change this to load the most recent version of kallisto ONLY IF pseudobam generation is not required. Versions of kallisto following 0.46.1 are not capable of producing pseudobam files. If an updated version of kallisto is to be used then delete lines 72 and 77 to prevent the pseudobam command from executing. 
-
-Line 78: --single -l 180 -s 20 \
+Line 79: --single -l 180 -s 20 \
 - Change the “-l” and “-s” commands based on the fragment lengths and the standard deviation of the fragment lengths of the single end sequencing experiments. 
-- THE METHOD TO FIND -L AND -S VALUES ARE IN DEVELOPMENT AND WILL BE ADDED TO THIS REPOSITORY SOON.
+- THE METHOD TO FIND -L AND -S VALUES ARE IN PART 1B BELOW
+
+Lines 71 and 76: conda run -n kallisto_0461
+- Delete this bit before the "kallisto quant" command to load the most recent version of kallisto ONLY IF pseudobam generation is not required. Versions of kallisto following 0.46.1 are not capable of producing pseudobam files. If an updated version of kallisto is to be used then delete lines 73 and 78 to prevent the pseudobam command from executing. 
 
 To run the sbatch file, the user must use the terminal, navigate to the directory that contains the “Run_Kallisto_pseudobam.sbatch” script, and call upon the script in the following format:
 
@@ -31,6 +34,21 @@ If you are using a different kallisto reference index:
 - sbatch Run_Kallisto_pseudobam.sbatch -sample mysamplename -index indexname
 
 These sbatch calls need to be run for each sample raw data file within the experiment. 
+
+## Part 1B: Finding Fragment Length and Standard Deviation for Single-End Read Analysis: 
+
+The "find_fragment_length.sbatch" takes an input of a raw data fastq file from a single-end RNA-sequencing experiment. This script utilizes Salmon to align the raw data to an existing Salmon index. The script then takes the fragment length output file (fld.gz) and calculates the mean fragment length and standard deviation for the experiment. These values can be used for the "Run_Kallisto_pseudobam.sbatch" when single-end experiment raw data files need to be pseudoaligned using Kallisto. This script only needs to be run on one raw data file per sequencing experiment. 
+
+Change the following lines in “find_fragment_length.sbatch” based on the RNA sequencing experiment and location of the raw data and Salmon index. 
+
+Line 15: --overlay /path/to/environment/envir.ext3:ro \
+- Input the path to the singularity overlay environment that is needed to run this script.
+
+Line 31: cd /path/to/frag_length/output/
+- Input the path to where the fragment length outputs should go.
+
+Line 36: -r /path/to/Raw_data/${sample}.fastq.gz \
+- Input the path to the location of the raw data fastq file. 
 
 ## Part 2: Performing Differential Expression Analysis and Visualization of Results:
 
