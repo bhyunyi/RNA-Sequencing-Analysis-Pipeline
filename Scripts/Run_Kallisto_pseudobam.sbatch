@@ -8,6 +8,13 @@
 #SBATCH --output=slurm_%j.out
 #SBATCH --account=pr_284_general
 
+module purge
+
+singularity exec --nv \
+	    --overlay /path/to/environment/envir.ext3:ro \
+	    /share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif \
+	    /bin/bash -c 'source /ext3/env.sh
+
 #initialize variables
 
 sample=""
@@ -28,16 +35,10 @@ OUT=/path/to/output/directory/${sample}
 mkdir -p "$OUT"
 cd "$BASE"
 
-#purge all modules and load kallisto
-module purge
-module load fastqc/0.11.9
-module load kallisto/0.46.1
-module load trimgalore/0.6.6
-
 #find if the analysis was single or paired-end. Names of the fastq files may need to be change case-by-case.
-S1="${sample}.fastq.gz"
-S1_paired="${sample}_1.fastq.gz"
-S2="${sample}_2.fastq.gz"
+S1="${sample}.fastq"
+S1_paired="${sample}_1.fastq"
+S2="${sample}_2.fastq"
 
 if [[ -f "$S1_paired" && -f "$S2" ]]; then
     MODE="PE"
@@ -57,26 +58,28 @@ fi
 
 #trim the reads using trim galore
 if [[ "$MODE" == "PE" ]]; then
-    trim_galore --paired --fastqc --output_dir "$OUT" "$S1_file" "$S2_file"
-    TRIM_S1="${OUT}/${sample}_1_val_1.fq.gz"
-    TRIM_S2="${OUT}/${sample}_2_val_2.fq.gz"
+    conda run -n trim_env trim_galore --paired --fastqc --output_dir "$OUT" "$S1_file" "$S2_file"
+    TRIM_S1="${OUT}/${sample}_1_val_1.fq"
+    TRIM_S2="${OUT}/${sample}_2_val_2.fq"
 else
-    trim_galore --fastqc --output_dir "$OUT" "$S1_file"
-    TRIM_S1="${OUT}/${sample}_trimmed.fq.gz"
+    conda run -n trim_env trim_galore --fastqc --output_dir "$OUT" "$S1_file"
+    TRIM_S1="${OUT}/${sample}_trimmed.fq"
 fi
 
 #run the kallisto quant; for single-end, need to know fragment length and sd of fragment length; default of both are 180 and 20
 if [[ "$MODE" == "PE" ]]; then
-    kallisto quant -i /scratch/projects/truonglab/GRCh38/${index} \
+    conda run -n kallisto_0461 kallisto quant -i /scratch/projects/truonglab/GRCh38/${index} \
     -o "$OUT" \
     --pseudobam \
     "$TRIM_S1" "$TRIM_S2"
 else
-    kallisto quant -i /scratch/projects/truonglab/GRCh38/${index} \
+    conda run -n kallisto_0461 kallisto quant -i /scratch/projects/truonglab/GRCh38/${index} \
     -o "$OUT" \
     --pseudobam \
     --single -l 180 -s 20 \
     "$TRIM_S1"
 fi
+
+' bash "$@"
 
 module purge
