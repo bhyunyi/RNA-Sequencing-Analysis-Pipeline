@@ -11,13 +11,13 @@
 module purge
 
 singularity exec --nv \
-	    --overlay /scratch/by2372/ML_envir/ML_envir.ext3:ro \
+	    --overlay /path/to/environment/ML_envir.ext3:ro \
 	    /share/apps/images/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif \
 	    /bin/bash -c 'source /ext3/env.sh
 
-cd /scratch/by2372/Microglia_RNA_Seq_10FEB2026/References/
+cd /path/to/References/
 
-conda run -n kallisto_0461 kallisto index -i New.GRCh38.cdna.all.idx New.GRCh38.cdna.all.fa
+conda run -n kallisto_0461 kallisto index -i New.idx reference.fa
 
 ' bash "$@"
 
