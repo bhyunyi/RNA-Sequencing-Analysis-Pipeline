@@ -1,0 +1,477 @@
+---
+title: "RNA-Seq Analysis with STAR"
+output: html_document
+date: "2026-05-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Running the DESeq2 Analysis.
+
+Load the necessary libraries for the analysis.
+```{r}
+library(tidyverse)
+library(tximport)
+library(DESeq2)
+library(readr)
+library(matrixStats)
+library(ggplot2)
+library(limma)
+```
+
+Set the sample names and the conditions.
+### CHANGE SAMPLE NAMES AND CONDITIONS HERE FOR DIFFERENT ANALYSES ###
+
+```{r}
+# Add in the sample names as a list below
+sample_names = c('input sample names here')
+# Add in the conditions below with the correct number of replicates for each condition
+sample_condition = c(rep('Condition 1',3),rep('Condition 2',3),rep('Condition 3',3))
+unique_condition = unique(sample_condition)
+num_conditions = length(unique_condition)
+
+```
+
+
+Define the abundance files paths and import genes counts text files 
+### CHANGE PATHS HERE FOR DIFFERENT ANALYSES ###
+
+```{r}
+analysis_path = "/path/to/STAR/outputs"
+abundance_path = file.path(analysis_path, sample_names,"gene_feature_counts.txt")
+names(abundance_path) = sample_names
+
+# Convert list of count file paths to a list of dataframes within those paths
+count_list = lapply(abundance_path, function(f) {
+  df = read.table(f, header=TRUE, comment.char="#")
+})
+# Convert the count list to only contain the gene counts from the 7th column of the count text files
+for(c in 1:length(count_list)){
+  names(count_list[[c]])[7] = sample_names[c]
+  count_list[[c]] = count_list[[c]][,c(1,7)]
+}
+
+# merge the lists in count_list by GeneID
+countdata = Reduce(function(x, y) merge(x, y, by=1), count_list)
+
+# set rownames as the GeneID
+rownames(countdata) = countdata$Geneid
+countdata = countdata[,-1]
+
+# rename columns as the sample_names
+colnames(countdata) = sample_names
+```
+
+Define the sample dataframe and make a DESeq2 dataframe. 
+
+```{r}
+sample_df = data.frame(sample = factor(sample_names),
+              condition = factor(sample_condition,levels = unique_condition ))
+# set row names attribute of sample_df
+row.names(sample_df) = sample_names
+
+dds = DESeqDataSetFromMatrix(
+  countData = countdata,
+  colData = sample_df,
+  design = ~ condition
+)
+```
+
+filter out low count genes 
+
+```{r}
+# pre-filter low count genes
+keep = rowSums(counts(dds)) >= 10
+dds = dds[keep,]
+```
+
+Relevel and make multiple dds objects if there are more than 2 conditions
+
+```{r}
+# COPY AND PASTE THE RELEVELING OF DDS DONE BELOW BASED ON WHICH CONDITIONS YOU WANT TO SEE AS THE REFERENCE CONDITION 
+
+dds$condition = relevel(dds$condition, ref = "x")
+dds_x = DESeq(dds)
+
+# COPY AND PASTE THE REFACTORING OF DDS DONE BELOW BASED ON THE ORDER OF CONDITIONS YOU WANT TO SEE IN DOWNSTREAM ANALYSES 
+
+dds$condition = factor(dds$condition, levels = c("Condition 1", "Condition 2","Condition 3"))
+
+```
+
+Extract the results object and perform lfc shrinkage operations
+
+```{r}
+# COPY AND PAST THE LFC SHRINKAGE TO REPEAT THIS OPERATION BASED ON COMBINATIONS OF CONDITIONS YOU WANT COMPARED IN YOUR ANALYSIS
+# Reference = x
+res_x_y = results(dds_s, contrast = c('condition','y','x'),alpha = 0.05)
+res_x_y.lfcShrink = lfcShrink(dds_x,
+                    res = res_x_y,
+                    coef = 'condition_y_vs_x',
+                    type = 'apeglm')
+
+```
+
+Get Gene symbol names for each ENSG ID:
+
+```{r}
+library(biomaRt)
+```
+
+Rid of version numbers in ENSG IDs and use Biomart to get Gene names. 
+
+```{r}
+ensembl_names = row.names(dds_x)
+# rids of version numbers after a "." character in ENSG IDs
+ensembl_names_no_version = gsub("\\.\\d+$", "", ensembl_names)
+
+# searches biomart for external gene names 
+ensembl = useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
+
+gene_info = getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                       filters = "ensembl_gene_id",
+                       values = ensembl_names_no_version,
+                       mart = ensembl)
+
+```
+
+```{r}
+# create a vector of gene names aligned with res
+gene_names = gene_info$external_gene_name[match(ensembl_names_no_version, gene_info$ensembl_gene_id)]
+
+# replace NAs with the Ensembl ID itself
+gene_names[is.na(gene_names) | gene_names == ""] = ensembl_names[is.na(gene_names)]
+
+```
+
+Give every res object a column with external gene name
+
+```{r}
+res_x_y.lfcShrink$geneID = gene_names
+```
+
+Function for volcano plot and results 
+
+```{r}
+volcano_plot = function(res,lfc_val,comp_name){
+  
+  res$log2FoldChange = as.numeric(res$log2FoldChange)
+  # Keep NA as NA, do not replace
+  res$neglog_padj = -log10(res$padj)
+  # Optionally, remove rows with NA if you want to completely exclude them from plotting
+  res_plot = res[!is.na(res$neglog_padj), ]
+  res_plot$significant = ifelse(!is.na(res_plot$padj) & res_plot$padj < 0.0005, "Significant", "Not Significant")  
+
+  plot_labels = res_plot[!is.na(res_plot$padj) & abs(res_plot$log2FoldChange) > lfc_val & res_plot$padj < 0.0005, ]
+  
+  volcano_plot = ggplot(res_plot, aes(x = log2FoldChange, y = neglog_padj, color = significant)) +
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.0005), linetype = "dotted", color = "blue") +
+    geom_vline(xintercept = lfc_val, linetype = "dotted", color = "blue") +
+    geom_vline(xintercept = lfc_val*(-1), linetype = "dotted", color = "blue") +
+    geom_text(data = plot_labels, aes(label = geneID, vjust = -0.5), size = 2) +
+    annotate("text", x = Inf, y = Inf, label = paste0(length(res_plot$geneID)," genes present"), hjust = 2, vjust = 1.1, size = 3) +
+  xlim(-10,10)+
+  labs(title = paste0("Volcano Plot for ", comp_name), x = "Log2 Fold change", y = "-log(adjusted p-value)", 
+       color = "Significance of Differential Expression")
+  
+  save_name = gsub(" ","_",comp_name)
+    # Saves the volcano plot to a directory
+  setwd(analysis_path)
+  ggsave(paste0(save_name,"_volcanoplot_TODAYSDATE.pdf"), plot = volcano_plot, width = 10, height = 6, dpi = 300)
+  
+  res_top_genes = res[!is.na(res$padj) & abs(res$log2FoldChange) > 1 & res$padj < 0.05, ]
+  res_top_genes_sorted = res_top_genes[order(res_top_genes$padj,decreasing = FALSE),]
+  res_top_10 = head(res_top_genes_sorted,10)
+  res_top_10 = as.data.frame(res_top_10)
+  top_file_name = paste0(comp_name,collapse = "")
+  write_csv(res_top_10,file = paste0(top_file_name,"_top10_genes.csv"))
+  
+  
+  return(volcano_plot)
+  
+}
+```
+
+## Heat maps for specific genes
+
+```{r}
+library(pheatmap)
+```
+
+Function for generating heatmap based on genes of interest
+
+```{r}
+heatmap = function(dds, genes, gene_names, plot_name,anno_rows,logvals,displayNum = FALSE){
+  
+    # Set rownames of dds to gene names (important if needed for indexing)
+    rownames(dds) = gene_names
+  
+  # Filter genes to only those present in gene_names
+  valid_genes = intersect(genes, gene_names)
+
+  if (length(valid_genes) == 0) {
+    stop("None of the input genes are present in gene_names.")
+  }
+  
+  # Get size-factor normalized counts
+  normvalues = counts(dds, normalized = TRUE)
+
+  # Subset to valid genes only
+  gene_vals = normvalues[valid_genes, , drop = FALSE]
+  plot_name = paste0(plot_name, " Raw Expression")
+  save_name = paste0(gsub(" ","_",plot_name),"_Raw_heatmap_TODAYSDATE.pdf")
+  
+  if (logvals){
+    gene_vals = log2(gene_vals + 1)
+    plot_name = paste0(plot_name, " Log2 Expression")
+    save_name = paste0(gsub(" ","_",plot_name),"_Log2_heatmap_TODAYSDATE.pdf")
+  }
+  
+  print(nrow(gene_vals))
+  
+  annotation_col = as.data.frame(colData(dds)[, "condition", drop = FALSE])
+  
+  if (is.logical(anno_rows)){
+    anno_rows_df = NULL
+  } else {
+    anno_rows_df = data.frame(Gene_Type = anno_rows)
+    rownames(anno_rows_df) = rownames(gene_vals)
+  }
+  
+  displayNum_val = if (displayNum) round(gene_vals,0) else FALSE
+
+  # Plot
+  setwd(analysis_path)
+  pdf(save_name, width = 50, height = 30)
+
+  pheatmap::pheatmap(
+    gene_vals,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    display_numbers = displayNum_val,
+    cellwidth = 50,
+    cellheight = 20,
+    fontsize = 20,
+    border_color = NA,
+    main = plot_name,
+    annotation_col = annotation_col,
+    annotation_row = anno_rows_df
+  )
+
+  dev.off()
+}
+```
+
+Heat map for Pearson and Spearman correlation test
+
+```{r}
+Pearson_Spearman_heatmap = function(dds,upper_color,lower_color){
+  vsd = vst(dds, blind = TRUE)
+
+  mat = assay(vsd)
+  
+  Pearson_cor = cor(mat)
+  Pearson_cor[upper.tri(Pearson_cor)] = NA
+  
+  Spearman_cor = cor(mat,method = "spearman")
+  Spearman_cor[upper.tri(Spearman_cor)] = NA
+  
+  annotation_col = as.data.frame(colData(dds)[, "condition", drop = FALSE])
+  
+  setwd(analysis_path)
+  pdf("Pearson_Heatmap_TODAYSDATE.pdf", width = 15, height = 15)
+  
+  pheatmap(Pearson_cor, 
+        show_rownames = FALSE,
+        show_colnames = FALSE,
+        cluster_rows = FALSE,
+        cluster_cols = FALSE,
+        cellwidth = 20,
+        cellheight = 20,
+        fontsize = 20,
+        na_col = "white", 
+        colorRampPalette(c(lower_color, upper_color))(100),
+        main = "Pearson Correlation Heatmap",
+        annotation_col = annotation_col,
+        annotation_row = annotation_col)
+
+  dev.off()
+
+  pdf("Spearman_Heatmap_TODAYSDATE.pdf", width = 15, height = 15)
+  
+  pheatmap(Spearman_cor, 
+        show_rownames = FALSE,
+        show_colnames = FALSE,
+        cluster_rows = FALSE,
+        cluster_cols = FALSE,
+        cellwidth = 20,
+        cellheight = 20,
+        fontsize = 20,
+        na_col = "white", 
+        colorRampPalette(c(lower_color, upper_color))(100),
+        main = "Spearman Correlation Heatmap",
+        annotation_col = annotation_col,
+        annotation_row = annotation_col)
+
+  dev.off()
+  
+}
+
+```
+
+
+Perform PCA and plot. This will include the top 1000 variance genes in the analysis. 
+
+```{r}
+PCA_plotter = function(dds,cond_colors){
+  vsd = vst(dds, blind = TRUE)
+
+  mat = assay(vsd)
+  
+  # pick top variable genes
+  vars = rowVars(mat)
+  top = order(vars, decreasing = TRUE)[1:1000]
+  # run PCA
+  pca = prcomp(t(mat[top, ]), center = TRUE, scale. = TRUE)
+  loadings = pca$rotation
+  
+  pca_df = as.data.frame(pca$x)
+  pca_df$sample = rownames(pca_df)
+  
+  # add metadata
+  pca_df = merge(pca_df, as.data.frame(colData(vsd)), by = "sample")
+  
+  percentVar = (pca$sdev^2) / sum(pca$sdev^2)
+  
+  PCA_Plot = ggplot(pca_df, aes(PC1, PC2, color = condition)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = cond_colors) +
+    xlab(paste0("PC1: ", round(percentVar[1] * 100), "%")) +
+    ylab(paste0("PC2: ", round(percentVar[2] * 100), "%")) +
+    theme_bw()
+
+  setwd(analysis_path)
+  ggsave(paste0("PCA_plot_TODAYSDATE.pdf"), plot = PCA_Plot, width = 10, height = 6, dpi = 300)
+  
+  print(PCA_Plot)
+  
+  top_PC1 = head(order(abs(loadings[, "PC1"]), decreasing = TRUE), 100)
+  genes_PC1 = rownames(loadings)[top_PC1]
+  write.csv(genes_PC1, "genes_PC1.csv", row.names = FALSE)
+  
+  top_PC2 = head(order(abs(loadings[, "PC2"]), decreasing = TRUE), 100)
+  genes_PC2 = rownames(loadings)[top_PC2]
+  write.csv(genes_PC2, "genes_PC2.csv", row.names = FALSE)
+  
+}
+```
+
+Comparative Bar Graph
+
+```{r}
+comp_bar_graph = function(res,genes,plot_name) {
+  
+  all_genes = res$geneID
+
+  valid_genes = intersect(genes, all_genes)
+
+  if (length(valid_genes) == 0) {
+    stop("None of the input genes are present in gene_names.")
+  }
+
+  res_genes = res[res$geneID %in% valid_genes, ]
+
+  plot_df = res_genes[, c("geneID", "log2FoldChange")]
+  
+  com_bar = ggplot(plot_df, aes(x = geneID, y = log2FoldChange)) +
+  geom_bar(stat = "identity") +
+  geom_point(size = 2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 20),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12)
+  ) +
+  ylab("Log2 Fold Change") +
+  xlab("Gene") +
+  ggtitle(paste0("Comparative Bar Plot for ", plot_name))
+  
+  save_name = gsub(" ","_",plot_name)
+  setwd(analysis_path)
+  ggsave(filename = paste0(save_name, "_comp_bar.png"),plot = com_bar,width = 20,height = 10,dpi = 500)
+  
+  print(com_bar)
+}
+```
+
+Gene Set Enrichment Analysis with Cluster Profiler
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+organism = "org.Hs.eg.db"
+#BiocManager::install(organism,character.only = TRUE)
+library(organism,character.only = TRUE)
+```
+
+```{r}
+GSEA_plot = function(res,comp_name, ref_cond, test_cond){
+  
+  original_gene_list = res$log2FoldChange
+  
+  names(original_gene_list) = rownames(res)
+  
+  gene_list = na.omit(original_gene_list)
+  
+  gene_list = sort(gene_list,decreasing = TRUE)
+  
+  names(gene_list) = gsub("\\..*", "", names(gene_list))
+  
+  gene_list = gene_list[!duplicated(names(gene_list))]
+  
+  gse = gseGO(geneList = gene_list,
+              ont = "BP",
+              keyType = "ENSEMBL",
+              minGSSize = 3,
+              maxGSSize = 800,
+              pvalueCutoff = 0.05,
+              verbose = TRUE,
+              OrgDb = org.Hs.eg.db,
+              pAdjustMethod = "BH")
+  
+  require(DOSE)
+  
+  gse@result$.sign <- ifelse(
+    gse@result$NES > 0,
+    paste0("Activated in ", test_cond),
+    paste0("Activated in ", ref_cond)
+  )
+  
+  gse@result$.sign <- factor(gse@result$.sign)
+  
+  GSEA_dotplot = dotplot(gse,showCategory = 10, split=".sign") + facet_grid(.~.sign) +
+    ggtitle(paste0("GSEA Dot Plot for ", comp_name)) +
+  theme(
+        plot.title = element_text(size = 20),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        axis.text.x = element_text(size = 12,angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12)
+        ) 
+  
+  save_name = gsub(" ","_",comp_name)
+  setwd(analysis_path)
+  ggsave(filename = paste0(save_name, "_GSEA_dotplot.png"),plot = GSEA_dotplot,width = 20,height = 10,dpi = 500)
+  print(GSEA_dotplot)
+}
+
+```
+
+
