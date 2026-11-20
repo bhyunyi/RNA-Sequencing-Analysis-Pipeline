@@ -78,7 +78,7 @@ that is listed within the "references" dictionary within "nextflow.config" file.
 required indices and gtf  files for STAR, Kallisto and Salmon must be generated beforehand,
  and the paths to the relevant files must be listed with the respective keys in the 
 "references" dictionary.
- - Below is and example of the "references" dictionary within the "nextflow.config" file
+	- Below is and example of the "references" dictionary within the "nextflow.config" file
 (PGP1_genome, miniNfull_genome, and GRCh38 are the identifiers to use for the 'index' field):
 
 ```text
@@ -110,9 +110,9 @@ required indices and gtf  files for STAR, Kallisto and Salmon must be generated 
 
 - The 'vendor' field in the samplesheet can be either "plasmidsaurus" or "novogene" since 
 these are the two vendors that the Truong Lab utilizes for bulk RNA-sequencing. 
- - plasmidsaurus: single-end read analysis with UMI deduplication (plasmidsaurus utilizes 
+	- plasmidsaurus: single-end read analysis with UMI deduplication (plasmidsaurus utilizes 
 UMIs in their single-end, long read sequencing) 
- - novogene: paired-end read analysis without UMI depublication
+	- novogene: paired-end read analysis without UMI depublication
 
 - run_RNASeq_nextflow.sbatch: includes the sbatch script to run nextflow given that the 
 main.nf, nextflow.config, and samplesheet.csv are in the same directory. This is where 
